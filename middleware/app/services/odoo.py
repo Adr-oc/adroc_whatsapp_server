@@ -76,7 +76,12 @@ class OdooForwarder:
             try:
                 response = await self.client.post(
                     settings.ODOO_WEBHOOK_URL,
-                    json=payload,
+                    json={
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "call",
+                        "params": payload,
+                    },
                     headers={
                         "X-API-Key": settings.ODOO_API_KEY,
                         "Content-Type": "application/json",
