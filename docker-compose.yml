@@ -49,9 +49,7 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
       evolution-api: { condition: service_healthy }
-    networks:
-      - app-network
-      - odoo-network
+    networks: [app-network]
 
   postgres:
     image: postgres:16-alpine
@@ -77,6 +75,3 @@ volumes:
 networks:
   app-network:
     driver: bridge
-  odoo-network:
-    external: true
-    name: gv_default
