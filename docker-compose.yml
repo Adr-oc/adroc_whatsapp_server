@@ -1,6 +1,6 @@
 services:
   evolution-api:
-    image: atendai/evolution-api:v2.2.3
+    image: evoapicloud/evolution-api:v2.3.7
     restart: unless-stopped
     ports: ["8080:8080"]
     environment:
@@ -16,6 +16,7 @@ services:
       - WEBHOOK_EVENTS_MESSAGES_UPDATE=true
       - WEBHOOK_EVENTS_CONNECTION_UPDATE=true
       - WEBHOOK_EVENTS_SEND_MESSAGE=true
+      - WEBHOOK_EVENTS_CONTACTS_UPDATE=true
       - CACHE_REDIS_ENABLED=false
       - CACHE_LOCAL_ENABLED=true
     volumes: [evolution_instances:/evolution/instances]
@@ -48,7 +49,9 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
       evolution-api: { condition: service_healthy }
-    networks: [app-network]
+    networks:
+      - app-network
+      - odoo-network
 
   postgres:
     image: postgres:16-alpine
@@ -74,3 +77,6 @@ volumes:
 networks:
   app-network:
     driver: bridge
+  odoo-network:
+    external: true
+    name: gv_default

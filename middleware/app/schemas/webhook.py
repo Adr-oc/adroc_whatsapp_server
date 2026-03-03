@@ -11,7 +11,7 @@ class EvolutionWebhookPayload(BaseModel):
 
     event: str
     instance: str
-    data: dict[str, Any]
+    data: dict[str, Any] | list[Any]
     date_time: datetime | None = None
     server_url: str | None = None
     apikey: str | None = None
