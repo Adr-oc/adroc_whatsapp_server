@@ -1,5 +1,6 @@
 import structlog
 from fastapi import APIRouter
+from fastapi.responses import JSONResponse
 
 from app.exceptions import OdooForwardError
 from app.schemas.webhook import EvolutionWebhookPayload
@@ -36,9 +37,14 @@ async def receive_evolution_webhook(payload: EvolutionWebhookPayload):
             await odoo_forwarder.enqueue(forward_payload)
         except OdooForwardError:
             log.error(
-                "odoo_enqueue_failed",
+                "webhook_queue_full",
                 webhook_event=payload.event,
                 instance=payload.instance,
+                queue_size=odoo_forwarder.queue.qsize(),
+            )
+            return JSONResponse(
+                status_code=503,
+                content={"detail": "Forwarding queue at capacity, retry later"},
             )
 
     return {"status": "received"}
