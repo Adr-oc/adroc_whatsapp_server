@@ -265,7 +265,7 @@ do_configure() {
         echo ""
         if ! confirm "Existing .env found. Overwrite? " 1; then
             echo -e "  ${DIM}Keeping existing .env${RESET}"
-            return 1
+            return 0
         fi
     fi
 
