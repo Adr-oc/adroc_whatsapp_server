@@ -11,8 +11,8 @@
 A Docker-based server stack that connects WhatsApp to Odoo through three services:
 
 1. **Evolution API** — Manages WhatsApp sessions (QR pairing, send/receive messages)
-2. **Middleware (FastAPI)** — API gateway that persists messages, forwards to Odoo, handles retries
-3. **PostgreSQL** — Independent backup database for disaster recovery
+2. **Middleware (FastAPI)** — API gateway that forwards webhooks to Odoo with retry, handles instance management
+3. **PostgreSQL** — Backup database for disaster recovery
 
 ```
 [WhatsApp Users]
@@ -34,7 +34,27 @@ A Docker-based server stack that connects WhatsApp to Odoo through three service
 - A server with ports 8080 and 8000 available
 - An Odoo.sh instance with the [`adroc_whatsapp`](https://github.com/Adr-oc/adroc_whatsapp) module installed
 
-### 1. Clone and configure
+### Interactive installer (recommended)
+
+```bash
+git clone https://github.com/Adr-oc/adroc_whatsapp_server.git
+cd adroc_whatsapp_server
+chmod +x setup.sh
+./setup.sh
+```
+
+The installer will:
+
+- Check prerequisites (Docker, Compose, OpenSSL)
+- Ask for your Odoo webhook URL
+- Auto-generate all API keys and secrets
+- Create the `.env` file
+- Optionally start all services and verify health
+- Optionally run the test suite (62 tests)
+
+### Manual setup
+
+If you prefer to configure manually:
 
 ```bash
 git clone https://github.com/Adr-oc/adroc_whatsapp_server.git
@@ -42,40 +62,27 @@ cd adroc_whatsapp_server
 cp .env.example .env
 ```
 
-### 2. Generate API keys
-
-```bash
-# Run this 3 times, one for each key
-openssl rand -hex 32
-```
-
-Edit `.env` with the generated keys:
+Generate API keys (`openssl rand -hex 32`, run 3 times) and edit `.env`:
 
 ```env
 POSTGRES_USER=adroc
-POSTGRES_PASSWORD=<generate-a-strong-password>
+POSTGRES_PASSWORD=<generated>
 EVOLUTION_DB_NAME=evolution
 MIDDLEWARE_DB_NAME=middleware
-EVOLUTION_API_KEY=<paste-first-generated-key>
-MIDDLEWARE_API_KEY=<paste-second-generated-key>
+EVOLUTION_API_KEY=<generated>
+MIDDLEWARE_API_KEY=<generated>
 ODOO_WEBHOOK_URL=https://your-instance.odoo.com/whatsapp/webhook
-ODOO_API_KEY=<paste-third-generated-key>
+ODOO_API_KEY=<generated>
 ```
 
-> **Important:** The `ODOO_API_KEY` must also be configured in Odoo's `ir.config_parameter` so the module can validate incoming requests. The `MIDDLEWARE_API_KEY` must be configured in Odoo so it can authenticate when calling this server.
-
-### 3. Launch
+Then launch:
 
 ```bash
-docker-compose up -d
-```
-
-### 4. Verify
-
-```bash
+docker compose up -d
 curl http://localhost:8000/api/health
-# → {"status": "ok", "evolution_api": "reachable", "database": "connected", "odoo": "reachable"}
 ```
+
+> **Important:** The `ODOO_API_KEY` must also be configured in Odoo so the module can validate incoming requests. The `MIDDLEWARE_API_KEY` must be configured in Odoo so it can authenticate when calling this server.
 
 ---
 
@@ -86,17 +93,14 @@ curl http://localhost:8000/api/health
 WhatsApp user sends message
   → Evolution API receives it
   → Evolution sends webhook to middleware (POST /webhooks/evolution)
-  → Middleware saves to PostgreSQL (odoo_synced = false)
-  → Middleware forwards to Odoo (POST /whatsapp/webhook with X-API-Key)
-  → On success: marks odoo_synced = true
-  → On failure: stays odoo_synced = false, retry later
+  → Middleware forwards to Odoo (POST /whatsapp/webhook) with exponential backoff retry
+  → Odoo processes and displays in Discuss
 ```
 
 **Outgoing (Odoo to WhatsApp):**
 ```
 Odoo agent clicks reply in Discuss
   → Odoo calls middleware (POST /api/instances/{name}/send with X-API-Key)
-  → Middleware saves outgoing message to PostgreSQL
   → Middleware calls Evolution API (POST /message/sendText/{name})
   → Evolution sends via WhatsApp
 ```
@@ -123,18 +127,32 @@ All endpoints (except webhooks and health) require `X-API-Key` header.
 
 ---
 
+## Testing
+
+```bash
+cd middleware
+pip install -r requirements-dev.txt
+python -m pytest tests/ -v
+```
+
+62 tests covering schemas, services (Evolution API, Odoo forwarder with retry), all routes, and auth.
+
+---
+
 ## Disaster Recovery
 
 If Odoo.sh is restored from a backup and messages are lost:
 
 ```bash
+# Using the CLI script
+python scripts/resync.py --from-date 2026-02-20T00:00:00Z --api-key YOUR_KEY --poll
+
+# Or directly via API
 curl -X POST http://localhost:8000/api/resync \
   -H "X-API-Key: your-middleware-key" \
   -H "Content-Type: application/json" \
   -d '{"from_date": "2026-02-20T00:00:00Z"}'
 ```
-
-The middleware re-sends all messages from that date to Odoo, deduplicating by `whatsapp_id`.
 
 ---
 
@@ -168,7 +186,7 @@ After deploying both repos, configure Odoo:
 
 ## Tech Stack
 
-- **Evolution API** — `atendai/evolution-api:v2.2.3`
+- **Evolution API** — `evoapicloud/evolution-api:v2.3.7`
 - **Python 3.11+** — FastAPI, SQLAlchemy 2.0 (async), httpx, Pydantic v2
 - **PostgreSQL 16**
 - **Docker Compose**
@@ -177,4 +195,4 @@ After deploying both repos, configure Odoo:
 
 ## License
 
-Proprietary — All rights reserved.
+Adroc — All rights reserved.
