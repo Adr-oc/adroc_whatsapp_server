@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_db, verify_api_key
+from app.exceptions import EvolutionAPIError
 from app.schemas.instance import (
     CreateInstanceRequest,
     InstanceResponse,
@@ -20,8 +21,22 @@ async def create_instance(
     body: CreateInstanceRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    """Create a new WhatsApp instance via Evolution API."""
-    result = await evolution_service.create_instance(body.instance_name)
+    """Create a new WhatsApp instance via Evolution API.
+
+    If the instance already exists, reconnect it and return its QR code.
+    """
+    try:
+        result = await evolution_service.create_instance(body.instance_name)
+    except EvolutionAPIError as e:
+        if e.status_code == 403 and "already in use" in (e.message or ""):
+            log.info("instance_exists_reconnecting", instance=body.instance_name)
+            connect_result = await evolution_service.connect(body.instance_name)
+            return InstanceResponse(
+                instance_name=body.instance_name,
+                state="created",
+                qrcode_base64=connect_result.get("base64"),
+            )
+        raise
 
     # TODO Phase 1: persist instance to local DB
     return InstanceResponse(
