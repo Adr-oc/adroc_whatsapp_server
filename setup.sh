@@ -152,10 +152,11 @@ ok "OpenSSL"
 # ── Main menu ────────────────────────────────────────────────────────────────
 echo ""
 select_menu "What would you like to do? " \
-    "Full setup      Configure .env, launch services, verify" \
-    "Launch only     Start services with existing .env" \
-    "Run tests       Execute the test suite" \
-    "Health check    Check if services are running"
+    "Full setup          Configure .env, launch, verify" \
+    "Launch only         Start services with existing .env" \
+    "Run tests           Execute the test suite" \
+    "Health check        Check if services are running" \
+    "Generate nginx conf Create nginx reverse proxy config"
 
 ACTION=$REPLY_IDX
 
@@ -320,6 +321,64 @@ EOF
     echo -e "    ODOO_API_KEY      = ${CYAN}${ODOO_API_KEY}${RESET}"
 }
 
+# ── Action: Generate nginx config ────────────────────────────────────────────
+do_nginx_conf() {
+    header "Nginx reverse proxy config"
+
+    ask "Public host (domain or IP) for middleware (e.g. whatsapp.example.com or ${CYAN}193.46.198.255${RESET}): "
+    read -r PUBLIC_HOST
+    while [ -z "$PUBLIC_HOST" ]; do
+        warn "Required. This is what users/Odoo will call."
+        ask "Public host: "
+        read -r PUBLIC_HOST
+    done
+
+    ask "Public port [80]: "
+    read -r PUBLIC_PORT
+    PUBLIC_PORT=${PUBLIC_PORT:-80}
+
+    CONFIG_FILE="nginx-adroc-whatsapp.conf"
+
+    cat > "$CONFIG_FILE" <<EOF
+upstream adroc_whatsapp_middleware {
+    server 127.0.0.1:8000;
+}
+
+server {
+    listen ${PUBLIC_PORT};
+    server_name ${PUBLIC_HOST};
+
+    # Optional: redirect /api/health quickly
+    location /api/health {
+        proxy_pass http://adroc_whatsapp_middleware/api/health;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+
+    location / {
+        proxy_pass http://adroc_whatsapp_middleware;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+}
+EOF
+
+    ok "Written nginx config to ./$CONFIG_FILE"
+    echo ""
+    echo -e "  ${DIM}To enable it on a Linux server with nginx:${RESET}"
+    echo -e "    1. Copy it:   ${CYAN}sudo cp $CONFIG_FILE /etc/nginx/sites-available/adroc_whatsapp.conf${RESET}"
+    echo -e "    2. Enable it: ${CYAN}sudo ln -s /etc/nginx/sites-available/adroc_whatsapp.conf /etc/nginx/sites-enabled/${RESET}"
+    echo -e "    3. Test:      ${CYAN}sudo nginx -t${RESET}"
+    echo -e "    4. Reload:    ${CYAN}sudo systemctl reload nginx${RESET}"
+    echo ""
+    echo -e "  ${DIM}Then set in Odoo:${RESET}"
+    echo -e "    whatsapp.middleware_url = ${CYAN}http://$PUBLIC_HOST${PUBLIC_PORT:+:$PUBLIC_PORT}${RESET}"
+}
+
 # ── Dispatch ─────────────────────────────────────────────────────────────────
 case $ACTION in
     0) # Full setup
@@ -346,6 +405,10 @@ case $ACTION in
 
     3) # Health check
         do_health_check
+        ;;
+
+    4) # Generate nginx config
+        do_nginx_conf
         ;;
 esac
 
