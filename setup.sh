@@ -376,7 +376,14 @@ EOF
     echo -e "    4. Reload:    ${CYAN}sudo systemctl reload nginx${RESET}"
     echo ""
     echo -e "  ${DIM}Then set in Odoo:${RESET}"
-    echo -e "    whatsapp.middleware_url = ${CYAN}http://$PUBLIC_HOST${PUBLIC_PORT:+:$PUBLIC_PORT}${RESET}"
+    if [ "$PUBLIC_PORT" = "80" ]; then
+        DISPLAY_URL="http://$PUBLIC_HOST"
+    elif [ "$PUBLIC_PORT" = "443" ]; then
+        DISPLAY_URL="https://$PUBLIC_HOST"
+    else
+        DISPLAY_URL="http://$PUBLIC_HOST:$PUBLIC_PORT"
+    fi
+    echo -e "    whatsapp.middleware_url = ${CYAN}${DISPLAY_URL}${RESET}"
 }
 
 # ── Dispatch ─────────────────────────────────────────────────────────────────
