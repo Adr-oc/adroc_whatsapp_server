@@ -18,23 +18,6 @@ class SendMessageRequest(BaseModel):
     quoted: dict | None = None
 
 
-class MessageResponse(BaseModel):
-    """Response for message operations."""
-
-    id: int
-    whatsapp_id: str | None
-    session: str
-    remote_jid: str
-    direction: str
-    body: str | None
-    message_type: str
-    timestamp: datetime
-    status: str
-    odoo_synced: bool
-
-    model_config = {"from_attributes": True}
-
-
 class ResyncRequest(BaseModel):
     """Request body for POST /api/resync."""
 
