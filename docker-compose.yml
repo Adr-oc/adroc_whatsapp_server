@@ -38,9 +38,7 @@ services:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${MIDDLEWARE_DB_NAME}
       - EVOLUTION_API_URL=http://evolution-api:8080
       - EVOLUTION_API_KEY=${EVOLUTION_API_KEY}
-      - ODOO_WEBHOOK_URL=${ODOO_WEBHOOK_URL}
-      - ODOO_API_KEY=${ODOO_API_KEY}
-      - MIDDLEWARE_API_KEY=${MIDDLEWARE_API_KEY}
+      - ADMIN_API_KEY=${ADMIN_API_KEY}
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8000/api/health || exit 1"]
       interval: 10s

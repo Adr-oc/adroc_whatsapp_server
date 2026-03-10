@@ -14,8 +14,10 @@ from app.exceptions import (
     odoo_forward_error_handler,
     webhook_validation_error_handler,
 )
-from app.routes import health, instances, messages, resync, webhooks
+from app.database import async_session
+from app.routes import health, instances, messages, resync, tenants, webhooks
 from app.services.odoo import odoo_forwarder
+from app.services.tenants import tenant_cache
 
 # structlog configuration
 shared_processors = [
@@ -44,16 +46,39 @@ structlog.configure(
 log = structlog.get_logger()
 
 
+async def _periodic_cache_refresh() -> None:
+    """Refresh tenant cache every 60 seconds as a safety net."""
+    import asyncio
+
+    while True:
+        await asyncio.sleep(60)
+        try:
+            async with async_session() as db:
+                await tenant_cache.refresh(db)
+        except Exception as e:
+            log.error("cache_refresh_error", error=str(e))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    import asyncio
+
     log.info("startup", workers=settings.ODOO_FORWARD_WORKERS)
+
+    # Initialize tenant cache
+    async with async_session() as db:
+        await tenant_cache.refresh(db)
 
     # Start Odoo forwarding workers
     await odoo_forwarder.start()
 
+    # Start periodic cache refresh
+    refresh_task = asyncio.create_task(_periodic_cache_refresh())
+
     yield
 
-    # Graceful shutdown: drain the queue
+    # Graceful shutdown
+    refresh_task.cancel()
     log.info("shutdown", pending_tasks=odoo_forwarder.queue.qsize())
     await odoo_forwarder.stop()
 
@@ -75,3 +100,4 @@ app.include_router(webhooks.router)
 app.include_router(instances.router)
 app.include_router(messages.router)
 app.include_router(resync.router)
+app.include_router(tenants.router)
