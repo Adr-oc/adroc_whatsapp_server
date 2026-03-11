@@ -428,3 +428,23 @@ class TestTenantListUpdate:
         body = resp.json()
         assert "instances" in body
         assert "total" in body["instances"]
+
+
+# ---------------------------------------------------------------------------
+# Logs route
+# ---------------------------------------------------------------------------
+class TestLogsRoute:
+    async def test_logs_no_follow_returns_json(self, client, admin_headers):
+        resp = await client.get("/api/logs?lines=10", headers=admin_headers)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "lines" in body
+        assert isinstance(body["lines"], list)
+
+    async def test_logs_requires_admin_key(self, client):
+        resp = await client.get("/api/logs")
+        assert resp.status_code in (403, 422)
+
+    async def test_logs_wrong_key_returns_403(self, client):
+        resp = await client.get("/api/logs", headers={"X-API-Key": "bad"})
+        assert resp.status_code == 403

@@ -16,7 +16,7 @@ from app.exceptions import (
 )
 from app.log_buffer import buffer_log_processor
 from app.database import async_session
-from app.routes import admin_instances, health, instances, messages, resync, tenants, webhooks
+from app.routes import admin_instances, health, instances, logs as logs_router, messages, resync, tenants, webhooks
 from app.services.odoo import odoo_forwarder
 from app.services.tenants import tenant_cache
 
@@ -104,3 +104,4 @@ app.include_router(messages.router)
 app.include_router(resync.router)
 app.include_router(tenants.router)
 app.include_router(admin_instances.router)
+app.include_router(logs_router.router)
