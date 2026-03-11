@@ -118,3 +118,31 @@ class TestQRCodeData:
         d = QRCodeData(qrcode={"base64": "data:image/png;base64,abc", "code": "2@xyz"})
         assert "base64" in d.qrcode
         assert d.qrcode["code"] == "2@xyz"
+
+
+class TestAdminSchemas:
+    def test_admin_instance_response_fields(self):
+        from app.schemas.instance import AdminInstanceResponse
+        r = AdminInstanceResponse(
+            instance_name="ventas",
+            evolution_name="acme_ventas",
+            tenant_slug="acme",
+            state="open",
+        )
+        assert r.instance_name == "ventas"
+        assert r.evolution_name == "acme_ventas"
+        assert r.last_event_at is None
+
+    def test_tenant_list_item_has_instance_count(self):
+        from app.schemas.tenant import TenantListItem
+        from datetime import datetime
+        item = TenantListItem(
+            slug="acme",
+            display_name="Acme Corp",
+            odoo_webhook_url="https://x.com",
+            is_active=True,
+            max_instances=10,
+            created_at=datetime.now(),
+            instance_count=3,
+        )
+        assert item.instance_count == 3
