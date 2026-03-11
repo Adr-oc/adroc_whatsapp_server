@@ -103,9 +103,6 @@ async def get_all_instances_admin(
     Join key: WebhookEvent.instance == Instance.instance_name (both store full prefixed name).
     Returns list of (Instance, Tenant, last_event_at) tuples.
     """
-    from app.models.tenant import Tenant as TenantModel
-    from app.models.webhook_event import WebhookEvent as WH
-
     last_event_sub = (
         select(func.max(WebhookEvent.created_at))
         .where(WebhookEvent.instance == Instance.instance_name)
@@ -114,14 +111,14 @@ async def get_all_instances_admin(
     )
 
     query = (
-        select(Instance, TenantModel, last_event_sub.label("last_event_at"))
-        .join(TenantModel, Instance.tenant_id == TenantModel.id)
-        .where(TenantModel.is_active == True)  # noqa: E712
-        .order_by(TenantModel.slug, Instance.instance_name)
+        select(Instance, Tenant, last_event_sub.label("last_event_at"))
+        .join(Tenant, Instance.tenant_id == Tenant.id)
+        .where(Tenant.is_active == True)  # noqa: E712
+        .order_by(Tenant.slug, Instance.instance_name)
     )
 
     if tenant_slug:
-        query = query.where(TenantModel.slug == tenant_slug)
+        query = query.where(Tenant.slug == tenant_slug)
 
     result = await db.execute(query)
     return [(row.Instance, row.Tenant, row.last_event_at) for row in result.all()]
