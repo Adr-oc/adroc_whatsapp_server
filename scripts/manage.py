@@ -27,7 +27,7 @@ from textual.reactive import reactive
 from textual.screen import ModalScreen
 from textual.widgets import (
     Button, ContentSwitcher, DataTable, Footer, Input,
-    Label, Log, Select, Static, TextArea,
+    Label, Log, Markdown, Select, Static, TextArea,
 )
 
 # Load .env from current working directory before reading env vars
@@ -361,8 +361,9 @@ class DashboardView(Vertical):
         try:
             health = await self.app.api.health()
             tenants = await self.app.api.list_tenants()
-        except Exception:
+        except Exception as e:
             self.app.query_one(Sidebar).set_status("error", ok=False)
+            self.notify(f"Dashboard error: {e}", severity="error", timeout=5)
             return
 
         # Update cards
@@ -559,6 +560,7 @@ class EditTenantModal(ModalScreen[dict | None]):
 class TenantsView(Horizontal):
     BORDER_TITLE = "Tenants"
 
+    _tenants: list[dict] = []
     _selected_tenant: dict | None = None
 
     def compose(self) -> ComposeResult:
@@ -717,7 +719,7 @@ class CreateInstanceModal(ModalScreen[dict | None]):
     def submit(self) -> None:
         tenant_slug = self.query_one("#f-tenant", Select).value
         name = self.query_one("#f-name", Input).value.strip()
-        if not tenant_slug or not name:
+        if tenant_slug is Select.BLANK or not name:
             self.notify("Tenant y nombre son requeridos.", severity="error")
             return
         self.dismiss({"tenant_slug": str(tenant_slug), "instance_name": name})
@@ -735,8 +737,6 @@ class InstancesView(Vertical):
     BORDER_TITLE = "Instancias"
 
     filter_slug: reactive[str | None] = reactive(None)
-    _instances: list[dict] = []
-    _tenants: list[dict] = []
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="inst-toolbar"):
@@ -751,13 +751,18 @@ class InstancesView(Vertical):
         )
 
     def on_mount(self) -> None:
+        self._instances: list[dict] = []
+        self._tenants: list[dict] = []
         table = self.query_one("#inst-table", DataTable)
         table.add_columns("INSTANCIA", "ESTADO", "TELÉFONO", "TENANT", "ÚLTIMO WEBHOOK")
         self.refresh_data()
 
     def watch_filter_slug(self, slug: str | None) -> None:
-        sel = self.query_one("#inst-filter", Select)
-        sel.value = slug or ""
+        try:
+            sel = self.query_one("#inst-filter", Select)
+            sel.value = slug or ""
+        except Exception:
+            pass
 
     @work(exclusive=True)
     async def refresh_data(self) -> None:
@@ -825,7 +830,7 @@ class InstancesView(Vertical):
         elif key == "delete":
             self.app.call_later(self._delete_selected)
         elif key == "x":
-            self.app.call_later(self._export)
+            self._export()
 
     async def _restart_selected(self) -> None:
         inst = self._selected_inst()
@@ -872,17 +877,21 @@ class InstancesView(Vertical):
             except ApiError as e:
                 self.notify(f"Error: {e.detail}", severity="error")
 
-    async def _export(self) -> None:
+    @work(thread=True)
+    def _export(self) -> None:
         ts = datetime.now().strftime("%Y%m%d-%H%M%S")
         path = Path.cwd() / f"instances-export-{ts}.csv"
-        with open(path, "w", newline="") as f:
-            w = csv.DictWriter(f, fieldnames=[
-                "instance_name", "evolution_name", "tenant_slug",
-                "state", "phone_number", "last_event_at"
-            ])
-            w.writeheader()
-            w.writerows(self._instances)
-        self.notify(f"Exportado: {path.name}", severity="information")
+        try:
+            with open(path, "w", newline="") as f:
+                w = csv.DictWriter(f, fieldnames=[
+                    "instance_name", "evolution_name", "tenant_slug",
+                    "state", "phone_number", "last_event_at"
+                ])
+                w.writeheader()
+                w.writerows(self._instances)
+            self.app.call_from_thread(self.notify, f"Exportado: {path.name}", severity="information")
+        except OSError as e:
+            self.app.call_from_thread(self.notify, f"Export error: {e}", severity="error")
 
 
 # ---------------------------------------------------------------------------
@@ -906,11 +915,7 @@ class LogsView(Vertical):
             yield Label("  F: JSON/Pretty  Space: Pause  C: Clear", id="logs-hint")
         yield Log(id="log-widget", highlight=True, auto_scroll=True)
 
-    def on_mount(self) -> None:
-        self.start_stream()
-
     def on_show(self) -> None:
-        # Re-start stream when navigating back to this screen
         self.start_stream()
 
     @work(exclusive=True)
@@ -983,9 +988,6 @@ class LogsView(Vertical):
 class SendMessageView(Vertical):
     BORDER_TITLE = "Test Mensaje"
 
-    _tenants: list[dict] = []
-    _instances: list[dict] = []
-
     def compose(self) -> ComposeResult:
         yield Label("Enviar mensaje de prueba", id="send-title")
         yield Label("")
@@ -1006,6 +1008,8 @@ class SendMessageView(Vertical):
         yield Label("", id="send-result")
 
     def on_mount(self) -> None:
+        self._tenants: list[dict] = []
+        self._instances: list[dict] = []
         self.load_tenants()
 
     @work(exclusive=True)
@@ -1019,10 +1023,13 @@ class SendMessageView(Vertical):
             self.notify(f"Error cargando tenants: {e.detail}", severity="error")
 
     @on(Select.Changed, "#send-tenant")
-    async def tenant_changed(self, event: Select.Changed) -> None:
-        slug = str(event.value)
-        if not slug:
+    def tenant_changed(self, event: Select.Changed) -> None:
+        if event.value is Select.BLANK:
             return
+        self._load_instances_for_tenant(str(event.value))
+
+    @work(exclusive=True)
+    async def _load_instances_for_tenant(self, slug: str) -> None:
         try:
             self._instances = await self.app.api.list_instances(tenant=slug)
             options = [
@@ -1035,7 +1042,8 @@ class SendMessageView(Vertical):
 
     @on(Button.Pressed, "#btn-send")
     async def send_message(self) -> None:
-        evo_name = str(self.query_one("#send-instance", Select).value or "")
+        inst_sel = self.query_one("#send-instance", Select)
+        evo_name = "" if inst_sel.value is Select.BLANK else str(inst_sel.value)
         number = self.query_one("#send-number", Input).value.strip()
         text = self.query_one("#send-text", TextArea).text.strip()
 
@@ -1097,7 +1105,6 @@ class HelpOverlay(ModalScreen):
 
     def compose(self) -> ComposeResult:
         with Container(id="help-container"):
-            from textual.widgets import Markdown
             yield Markdown(self.HELP_TEXT)
             yield Button("Cerrar  [Esc]", id="btn-close")
 
