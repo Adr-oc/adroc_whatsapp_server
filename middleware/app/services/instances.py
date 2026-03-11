@@ -1,11 +1,14 @@
+from datetime import datetime
 from typing import Any
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.instance import Instance
+from app.models.tenant import Tenant
+from app.models.webhook_event import WebhookEvent
 
 log = structlog.get_logger()
 
@@ -90,3 +93,35 @@ async def update_instance_qr(db: AsyncSession, instance_name: str, qr_base64: st
         log.info("instance_qr_updated", instance=instance_name)
     else:
         log.warning("instance_qr_update_skipped", instance=instance_name, reason="not_found")
+
+
+async def get_all_instances_admin(
+    db: AsyncSession, tenant_slug: str | None = None
+) -> list[tuple[Instance, Tenant, datetime | None]]:
+    """List all instances across all tenants with last webhook event time.
+
+    Join key: WebhookEvent.instance == Instance.instance_name (both store full prefixed name).
+    Returns list of (Instance, Tenant, last_event_at) tuples.
+    """
+    from app.models.tenant import Tenant as TenantModel
+    from app.models.webhook_event import WebhookEvent as WH
+
+    last_event_sub = (
+        select(func.max(WebhookEvent.created_at))
+        .where(WebhookEvent.instance == Instance.instance_name)
+        .correlate(Instance)
+        .scalar_subquery()
+    )
+
+    query = (
+        select(Instance, TenantModel, last_event_sub.label("last_event_at"))
+        .join(TenantModel, Instance.tenant_id == TenantModel.id)
+        .where(TenantModel.is_active == True)  # noqa: E712
+        .order_by(TenantModel.slug, Instance.instance_name)
+    )
+
+    if tenant_slug:
+        query = query.where(TenantModel.slug == tenant_slug)
+
+    result = await db.execute(query)
+    return [(row.Instance, row.Tenant, row.last_event_at) for row in result.all()]

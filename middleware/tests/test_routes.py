@@ -7,6 +7,32 @@ import pytest
 
 
 # ---------------------------------------------------------------------------
+# Admin instance routes
+# ---------------------------------------------------------------------------
+class TestAdminInstanceRoutes:
+    PREFIX = "/api/admin/instances"
+
+    async def test_list_all_instances(self, client, admin_headers):
+        """GET /api/admin/instances returns all instances with tenant info."""
+        with patch(
+            "app.routes.admin_instances.get_all_instances_admin",
+            new=AsyncMock(return_value=[]),
+        ):
+            resp = await client.get(self.PREFIX, headers=admin_headers)
+        # DB is empty in unit tests — just verify auth works and shape is right
+        assert resp.status_code == 200
+        assert isinstance(resp.json(), list)
+
+    async def test_list_instances_requires_admin_key(self, client, tenant_headers):
+        resp = await client.get(self.PREFIX, headers=tenant_headers)
+        assert resp.status_code == 403
+
+    async def test_list_instances_no_auth_returns_error(self, client):
+        resp = await client.get(self.PREFIX)
+        assert resp.status_code in (403, 422)
+
+
+# ---------------------------------------------------------------------------
 # Webhook route
 # ---------------------------------------------------------------------------
 class TestWebhookRoute:
