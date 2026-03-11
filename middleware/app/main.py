@@ -14,6 +14,7 @@ from app.exceptions import (
     odoo_forward_error_handler,
     webhook_validation_error_handler,
 )
+from app.log_buffer import buffer_log_processor
 from app.database import async_session
 from app.routes import health, instances, messages, resync, tenants, webhooks
 from app.services.odoo import odoo_forwarder
@@ -26,6 +27,7 @@ shared_processors = [
     structlog.processors.TimeStamper(fmt="iso"),
     structlog.processors.StackInfoRenderer(),
     structlog.processors.format_exc_info,
+    buffer_log_processor,
 ]
 
 if settings.LOG_FORMAT == "console":
