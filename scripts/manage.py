@@ -205,7 +205,7 @@ ContentSwitcher {
 .card-ok { border: round $success; }
 .card-warn { border: round $warning; }
 .card-err { border: round $error; }
-.card-value { text-style: bold; font-size: 4; }
+.card-value { text-style: bold; }
 .card-label { color: $text-muted; }
 /* Tables */
 DataTable { height: 1fr; }
@@ -604,7 +604,11 @@ class TenantsView(Horizontal):
             self.query_one(TenantDetailPanel).show_tenant(self._selected_tenant)
 
     @on(Button.Pressed, "#btn-new-tenant")
-    async def new_tenant(self) -> None:
+    def new_tenant(self) -> None:
+        self._do_new_tenant()
+
+    @work
+    async def _do_new_tenant(self) -> None:
         result = await self.app.push_screen_wait(CreateTenantModal())
         if result:
             try:
@@ -624,9 +628,12 @@ class TenantsView(Horizontal):
             inst_view.filter_slug = self._selected_tenant["slug"]
 
     @on(Button.Pressed, "#btn-edit")
-    async def edit_tenant(self) -> None:
-        if not self._selected_tenant:
-            return
+    def edit_tenant(self) -> None:
+        if self._selected_tenant:
+            self._do_edit_tenant()
+
+    @work
+    async def _do_edit_tenant(self) -> None:
         result = await self.app.push_screen_wait(EditTenantModal(self._selected_tenant))
         if result:
             try:
@@ -637,9 +644,12 @@ class TenantsView(Horizontal):
                 self.notify(f"Error: {e.detail}", severity="error")
 
     @on(Button.Pressed, "#btn-rotate")
-    async def rotate_key(self) -> None:
-        if not self._selected_tenant:
-            return
+    def rotate_key(self) -> None:
+        if self._selected_tenant:
+            self._do_rotate_key()
+
+    @work
+    async def _do_rotate_key(self) -> None:
         slug = self._selected_tenant["slug"]
         confirmed = await self.app.push_screen_wait(
             ConfirmModal(f"Rotar API key de '{slug}'?\nLa clave actual quedará inválida.")
@@ -653,9 +663,12 @@ class TenantsView(Horizontal):
                 self.notify(f"Error: {e.detail}", severity="error")
 
     @on(Button.Pressed, "#btn-deactivate")
-    async def deactivate_tenant(self) -> None:
-        if not self._selected_tenant:
-            return
+    def deactivate_tenant(self) -> None:
+        if self._selected_tenant:
+            self._do_deactivate_tenant()
+
+    @work
+    async def _do_deactivate_tenant(self) -> None:
         slug = self._selected_tenant["slug"]
         confirmed = await self.app.push_screen_wait(
             ConfirmModal(f"Desactivar tenant '{slug}'?", confirm_label="Desactivar")
@@ -807,10 +820,14 @@ class InstancesView(Vertical):
         return next((i for i in self._instances if i["evolution_name"] == evo_name), None)
 
     @on(Button.Pressed, "#btn-new-inst")
-    async def new_instance(self) -> None:
+    def new_instance(self) -> None:
         if not self._tenants:
             self.notify("No hay tenants disponibles.", severity="error")
             return
+        self._do_new_instance()
+
+    @work
+    async def _do_new_instance(self) -> None:
         options = [(t["display_name"], t["slug"]) for t in self._tenants]
         result = await self.app.push_screen_wait(CreateInstanceModal(options))
         if result:
@@ -824,14 +841,15 @@ class InstancesView(Vertical):
     def on_key(self, event) -> None:
         key = event.key
         if key == "r":
-            self.app.call_later(self._restart_selected)
+            self._restart_selected()
         elif key == "l":
-            self.app.call_later(self._logout_selected)
+            self._logout_selected()
         elif key == "delete":
-            self.app.call_later(self._delete_selected)
+            self._delete_selected()
         elif key == "x":
             self._export()
 
+    @work
     async def _restart_selected(self) -> None:
         inst = self._selected_inst()
         if not inst:
@@ -847,6 +865,7 @@ class InstancesView(Vertical):
             except ApiError as e:
                 self.notify(f"Error: {e.detail}", severity="error")
 
+    @work
     async def _logout_selected(self) -> None:
         inst = self._selected_inst()
         if not inst:
@@ -862,6 +881,7 @@ class InstancesView(Vertical):
             except ApiError as e:
                 self.notify(f"Error: {e.detail}", severity="error")
 
+    @work
     async def _delete_selected(self) -> None:
         inst = self._selected_inst()
         if not inst:
@@ -1162,8 +1182,8 @@ class AdroCApp(App[None]):
         if hasattr(view, "refresh_data"):
             view.refresh_data()
 
-    async def action_show_help(self) -> None:
-        await self.push_screen(HelpOverlay())
+    def action_show_help(self) -> None:
+        self.push_screen(HelpOverlay())
 
 
 # ---------------------------------------------------------------------------
