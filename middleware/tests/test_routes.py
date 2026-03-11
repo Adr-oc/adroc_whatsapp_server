@@ -31,6 +31,8 @@ class TestWebhookRoute:
         call_payload = mock_enqueue.call_args[0][0]
         assert call_payload["event"] == "messages.upsert"
         assert call_payload["instance"] == "acme_ventas"
+        assert mock_enqueue.call_args.kwargs["tenant_odoo_url"] == "https://acme.odoo.com/whatsapp/webhook"
+        assert mock_enqueue.call_args.kwargs["tenant_odoo_key"] == "odoo-key"
 
     async def test_non_forward_event_skips_enqueue(self, client):
         mock_enqueue = AsyncMock()
