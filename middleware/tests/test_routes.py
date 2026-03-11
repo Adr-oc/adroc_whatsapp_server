@@ -392,3 +392,39 @@ class TestAuth:
 
         source = inspect.getsource(verify_admin_key)
         assert "compare_digest" in source
+
+
+# ---------------------------------------------------------------------------
+# Tenant list update
+# ---------------------------------------------------------------------------
+class TestTenantListUpdate:
+    async def test_list_tenants_includes_instance_count(self, client, admin_headers):
+        """GET /api/admin/tenants returns instance_count per tenant."""
+        with patch("app.routes.tenants.list_tenants", AsyncMock(return_value=[])):
+            resp = await client.get("/api/admin/tenants", headers=admin_headers)
+        assert resp.status_code == 200
+        for item in resp.json():
+            assert "instance_count" in item
+
+    async def test_health_includes_instances_total(self, client):
+        mock_execute_result = MagicMock()
+        mock_execute_result.scalar.return_value = 0
+
+        mock_session = AsyncMock()
+        mock_session.execute.return_value = mock_execute_result
+
+        @asynccontextmanager
+        async def mock_session_ctx():
+            yield mock_session
+
+        with (
+            patch("app.routes.health.async_session", return_value=mock_session_ctx()),
+            patch("app.routes.health.evolution_service") as mock_evo,
+        ):
+            mock_evo.is_reachable = AsyncMock(return_value=True)
+            resp = await client.get("/api/health")
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "instances" in body
+        assert "total" in body["instances"]

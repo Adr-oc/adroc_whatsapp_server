@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from sqlalchemy import func, select, text
 
 from app.database import async_session
+from app.models.instance import Instance
 from app.models.tenant import Tenant
 from app.models.webhook_event import WebhookEvent
 from app.services.evolution import evolution_service
@@ -35,8 +36,14 @@ async def health_check():
                 select(func.count()).select_from(Tenant).where(Tenant.is_active == True)  # noqa: E712
             )).scalar() or 0
 
+            # Instance count
+            total_instances = (await session.execute(
+                select(func.count()).select_from(Instance)
+            )).scalar() or 0
+
         result["database"] = {"status": "connected", "pending_events": pending}
         result["tenants"] = {"total": total_tenants, "active": active_tenants}
+        result["instances"] = {"total": total_instances}
     except Exception:
         result["database"] = {"status": "disconnected"}
         result["status"] = "degraded"
@@ -49,6 +56,10 @@ async def health_check():
             result["evolution_api"] = {"status": "unreachable"}
     except Exception:
         result["evolution_api"] = {"status": "unreachable"}
+
+    if result.get("database", {}).get("status") == "disconnected" and \
+       result.get("evolution_api", {}).get("status") == "unreachable":
+        result["status"] = "error"
 
     # Worker stats
     result["workers"] = {
