@@ -11,7 +11,8 @@ from app.config import settings
 from app.exceptions import OdooForwardError
 from app.services.odoo import OdooForwarder
 
-ODOO_URL = settings.ODOO_WEBHOOK_URL
+ODOO_URL = "https://test.odoo.com/whatsapp/webhook"
+ODOO_KEY = "test-odoo-key"
 
 
 @pytest.fixture
@@ -23,20 +24,20 @@ def forwarder():
 
 class TestEnqueue:
     async def test_success(self, forwarder):
-        await forwarder.enqueue({"event": "test"})
+        await forwarder.enqueue({"event": "test"}, tenant_odoo_url=ODOO_URL, tenant_odoo_key=ODOO_KEY)
         assert forwarder.queue.qsize() == 1
 
     async def test_multiple(self, forwarder):
         for i in range(3):
-            await forwarder.enqueue({"event": f"test-{i}"})
+            await forwarder.enqueue({"event": f"test-{i}"}, tenant_odoo_url=ODOO_URL, tenant_odoo_key=ODOO_KEY)
         assert forwarder.queue.qsize() == 3
 
     async def test_queue_full_raises(self, forwarder):
         for i in range(3):
-            await forwarder.enqueue({"event": f"fill-{i}"})
+            await forwarder.enqueue({"event": f"fill-{i}"}, tenant_odoo_url=ODOO_URL, tenant_odoo_key=ODOO_KEY)
 
         with pytest.raises(OdooForwardError, match="queue is full"):
-            await forwarder.enqueue({"event": "overflow"})
+            await forwarder.enqueue({"event": "overflow"}, tenant_odoo_url=ODOO_URL, tenant_odoo_key=ODOO_KEY)
 
 
 class TestForwardWithRetry:
@@ -47,7 +48,7 @@ class TestForwardWithRetry:
             return_value=httpx.Response(200, json={"result": "ok"})
         )
 
-        await forwarder._forward_with_retry({"event": "test", "data": {}})
+        await forwarder._forward_with_retry({"tenant_odoo_url": ODOO_URL, "tenant_odoo_key": ODOO_KEY, "payload": {"event": "test", "data": {}}})
 
         assert route.call_count == 1
 
@@ -66,7 +67,7 @@ class TestForwardWithRetry:
             return httpx.Response(200, json={"result": "ok"})
 
         respx.post(ODOO_URL).mock(side_effect=side_effect)
-        await forwarder._forward_with_retry({"event": "test"})
+        await forwarder._forward_with_retry({"tenant_odoo_url": ODOO_URL, "tenant_odoo_key": ODOO_KEY, "payload": {"event": "test"}})
 
         assert call_count == 3
 
@@ -81,7 +82,7 @@ class TestForwardWithRetry:
         )
 
         with pytest.raises(OdooForwardError, match="Failed after 2 attempts"):
-            await forwarder._forward_with_retry({"event": "test"})
+            await forwarder._forward_with_retry({"tenant_odoo_url": ODOO_URL, "tenant_odoo_key": ODOO_KEY, "payload": {"event": "test"}})
 
     @respx.mock
     async def test_connection_error_retries(self, monkeypatch):
@@ -92,7 +93,7 @@ class TestForwardWithRetry:
         respx.post(ODOO_URL).mock(side_effect=httpx.ConnectError("Connection refused"))
 
         with pytest.raises(OdooForwardError):
-            await forwarder._forward_with_retry({"event": "test"})
+            await forwarder._forward_with_retry({"tenant_odoo_url": ODOO_URL, "tenant_odoo_key": ODOO_KEY, "payload": {"event": "test"}})
 
 
 class TestJsonRpcWrapping:
@@ -104,7 +105,7 @@ class TestJsonRpcWrapping:
         )
 
         payload = {"event": "messages.upsert", "instance": "ventas", "data": {"key": "val"}}
-        await forwarder._forward_with_retry(payload)
+        await forwarder._forward_with_retry({"tenant_odoo_url": ODOO_URL, "tenant_odoo_key": ODOO_KEY, "payload": payload})
 
         sent = json.loads(route.calls[0].request.content)
         assert sent["jsonrpc"] == "2.0"
@@ -119,10 +120,10 @@ class TestJsonRpcWrapping:
             return_value=httpx.Response(200, json={"result": "ok"})
         )
 
-        await forwarder._forward_with_retry({"event": "test"})
+        await forwarder._forward_with_retry({"tenant_odoo_url": ODOO_URL, "tenant_odoo_key": ODOO_KEY, "payload": {"event": "test"}})
 
         request = route.calls[0].request
-        assert request.headers["X-API-Key"] == settings.ODOO_API_KEY
+        assert request.headers["X-API-Key"] == ODOO_KEY
         assert request.headers["Content-Type"] == "application/json"
 
 
