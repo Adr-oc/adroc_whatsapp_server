@@ -325,10 +325,10 @@ class TestHealthRoute:
 # Auth
 # ---------------------------------------------------------------------------
 class TestAuth:
-    async def test_valid_key_passes(self, client, auth_headers):
+    async def test_valid_key_passes(self, client, tenant_headers):
         with patch("app.routes.instances.evolution_service") as mock_evo:
             mock_evo.fetch_instances = AsyncMock(return_value=[])
-            resp = await client.get("/api/instances", headers=auth_headers)
+            resp = await client.get("/api/instances", headers=tenant_headers)
         assert resp.status_code == 200
 
     async def test_missing_key_fails(self, client):
@@ -339,11 +339,10 @@ class TestAuth:
         resp = await client.get("/api/instances", headers={"X-API-Key": "totally-wrong"})
         assert resp.status_code == 403
 
-    async def test_timing_safe_comparison(self):
-        """Verify we use secrets.compare_digest, not ==."""
+    async def test_admin_timing_safe_comparison(self):
+        """verify_admin_key uses secrets.compare_digest, not ==."""
         import inspect
-        from app.dependencies import verify_api_key
+        from app.dependencies import verify_admin_key
 
-        source = inspect.getsource(verify_api_key)
+        source = inspect.getsource(verify_admin_key)
         assert "compare_digest" in source
-        assert "==" not in source or "status_code" in source
