@@ -43,3 +43,8 @@ class TenantResponse(BaseModel):
 class TenantCreatedResponse(BaseModel):
     tenant: TenantResponse
     api_key: str
+
+
+class TenantListItem(TenantResponse):
+    """Used only by GET /api/admin/tenants — adds instance_count."""
+    instance_count: int = 0

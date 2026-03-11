@@ -1,11 +1,14 @@
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_db, verify_admin_key
+from app.models.instance import Instance
 from app.schemas.tenant import (
     CreateTenantRequest,
     TenantCreatedResponse,
+    TenantListItem,
     TenantResponse,
     UpdateTenantRequest,
 )
@@ -46,11 +49,21 @@ async def create_tenant_endpoint(
     )
 
 
-@router.get("", response_model=list[TenantResponse])
+@router.get("", response_model=list[TenantListItem])
 async def list_tenants_endpoint(db: AsyncSession = Depends(get_db)):
-    """List all tenants."""
+    """List all tenants with instance counts."""
     tenants = await list_tenants(db)
-    return [TenantResponse.model_validate(t) for t in tenants]
+    result = []
+    for tenant in tenants:
+        count_result = await db.execute(
+            select(func.count()).select_from(Instance)
+            .where(Instance.tenant_id == tenant.id)
+        )
+        count = count_result.scalar() or 0
+        item = TenantListItem.model_validate(tenant)
+        item.instance_count = count
+        result.append(item)
+    return result
 
 
 @router.get("/{slug}", response_model=TenantResponse)

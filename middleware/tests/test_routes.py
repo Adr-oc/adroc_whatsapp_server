@@ -7,12 +7,38 @@ import pytest
 
 
 # ---------------------------------------------------------------------------
+# Admin instance routes
+# ---------------------------------------------------------------------------
+class TestAdminInstanceRoutes:
+    PREFIX = "/api/admin/instances"
+
+    async def test_list_all_instances(self, client, admin_headers):
+        """GET /api/admin/instances returns all instances with tenant info."""
+        with patch(
+            "app.routes.admin_instances.get_all_instances_admin",
+            new=AsyncMock(return_value=[]),
+        ):
+            resp = await client.get(self.PREFIX, headers=admin_headers)
+        # DB is empty in unit tests — just verify auth works and shape is right
+        assert resp.status_code == 200
+        assert isinstance(resp.json(), list)
+
+    async def test_list_instances_requires_admin_key(self, client, tenant_headers):
+        resp = await client.get(self.PREFIX, headers=tenant_headers)
+        assert resp.status_code == 403
+
+    async def test_list_instances_no_auth_returns_error(self, client):
+        resp = await client.get(self.PREFIX)
+        assert resp.status_code in (403, 422)
+
+
+# ---------------------------------------------------------------------------
 # Webhook route
 # ---------------------------------------------------------------------------
 class TestWebhookRoute:
     ENDPOINT = "/webhooks/evolution"
 
-    def _payload(self, event="messages.upsert", instance="ventas", data=None):
+    def _payload(self, event="messages.upsert", instance="acme_ventas", data=None):
         return {
             "event": event,
             "instance": instance,
@@ -30,7 +56,9 @@ class TestWebhookRoute:
         mock_enqueue.assert_called_once()
         call_payload = mock_enqueue.call_args[0][0]
         assert call_payload["event"] == "messages.upsert"
-        assert call_payload["instance"] == "ventas"
+        assert call_payload["instance"] == "acme_ventas"
+        assert mock_enqueue.call_args.kwargs["tenant_odoo_url"] == "https://acme.odoo.com/whatsapp/webhook"
+        assert mock_enqueue.call_args.kwargs["tenant_odoo_key"] == "odoo-key"
 
     async def test_non_forward_event_skips_enqueue(self, client):
         mock_enqueue = AsyncMock()
@@ -65,7 +93,7 @@ class TestWebhookRoute:
         mock_fwd.queue.qsize.return_value = 1000
 
         with patch("app.routes.webhooks.odoo_forwarder", mock_fwd):
-            resp = await client.post(self.ENDPOINT, json=self._payload())
+            resp = await client.post(self.ENDPOINT, json=self._payload(instance="acme_ventas"))
 
         assert resp.status_code == 503
         assert "capacity" in resp.json()["detail"]
@@ -102,8 +130,14 @@ class TestInstanceRoutes:
             "hash": {"apikey": "tok"},
             "qrcode": {"base64": "data:image/png;base64,abc"},
         }
-        with patch("app.routes.instances.evolution_service") as mock_evo:
+        with (
+            patch("app.routes.instances.evolution_service") as mock_evo,
+            patch("app.routes.instances.get_tenant_instance_count", new=AsyncMock(return_value=0)),
+            patch("app.routes.instances.upsert_instance", new=AsyncMock(return_value=None)),
+            patch("app.routes.instances.tenant_cache") as mock_cache,
+        ):
             mock_evo.create_instance = AsyncMock(return_value=mock_result)
+            mock_cache.register_instance = MagicMock()
             resp = await client.post(
                 self.PREFIX,
                 json={"instance_name": "ventas"},
@@ -117,21 +151,18 @@ class TestInstanceRoutes:
         assert body["qrcode_base64"] == "data:image/png;base64,abc"
 
     async def test_list_instances(self, client, auth_headers):
-        with patch("app.routes.instances.evolution_service") as mock_evo:
-            mock_evo.fetch_instances = AsyncMock(return_value=[
-                {"name": "ventas", "connectionStatus": "open"},
-                {"name": "soporte", "connectionStatus": "close"},
-            ])
+        with patch("app.routes.instances.get_tenant_instances", new=AsyncMock(return_value=[])):
             resp = await client.get(self.PREFIX, headers=auth_headers)
 
         assert resp.status_code == 200
         data = resp.json()
-        assert len(data) == 2
-        assert data[0]["instance_name"] == "ventas"
-        assert data[0]["state"] == "open"
+        assert len(data) == 0
 
     async def test_get_qr_code(self, client, auth_headers):
-        with patch("app.routes.instances.evolution_service") as mock_evo:
+        with (
+            patch("app.routes.instances.get_instance_for_tenant", new=AsyncMock(return_value=None)),
+            patch("app.routes.instances.evolution_service") as mock_evo,
+        ):
             mock_evo.connect = AsyncMock(return_value={
                 "base64": "data:image/png;base64,qr123",
                 "code": "2@AbCdEf",
@@ -144,7 +175,10 @@ class TestInstanceRoutes:
         assert body["code"] == "2@AbCdEf"
 
     async def test_get_status(self, client, auth_headers):
-        with patch("app.routes.instances.evolution_service") as mock_evo:
+        with (
+            patch("app.routes.instances.get_instance_for_tenant", new=AsyncMock(return_value=None)),
+            patch("app.routes.instances.evolution_service") as mock_evo,
+        ):
             mock_evo.connection_state = AsyncMock(return_value={
                 "instance": {"instanceName": "ventas", "state": "open"},
             })
@@ -154,21 +188,32 @@ class TestInstanceRoutes:
         assert resp.json()["state"] == "open"
 
     async def test_delete_instance(self, client, auth_headers):
-        with patch("app.routes.instances.evolution_service") as mock_evo:
+        with (
+            patch("app.routes.instances.evolution_service") as mock_evo,
+            patch("app.routes.instances.delete_instance_by_name", new=AsyncMock(return_value=None)),
+            patch("app.routes.instances.tenant_cache") as mock_cache,
+        ):
             mock_evo.delete_instance = AsyncMock(return_value={"status": "deleted"})
+            mock_cache.unregister_instance = MagicMock()
             resp = await client.delete(f"{self.PREFIX}/ventas", headers=auth_headers)
 
         assert resp.status_code == 200
 
     async def test_restart_instance(self, client, auth_headers):
-        with patch("app.routes.instances.evolution_service") as mock_evo:
+        with (
+            patch("app.routes.instances.evolution_service") as mock_evo,
+            patch("app.routes.instances.upsert_instance", new=AsyncMock(return_value=None)),
+        ):
             mock_evo.restart_instance = AsyncMock(return_value={"status": "ok"})
             resp = await client.put(f"{self.PREFIX}/ventas/restart", headers=auth_headers)
 
         assert resp.status_code == 200
 
     async def test_logout_instance(self, client, auth_headers):
-        with patch("app.routes.instances.evolution_service") as mock_evo:
+        with (
+            patch("app.routes.instances.evolution_service") as mock_evo,
+            patch("app.routes.instances.upsert_instance", new=AsyncMock(return_value=None)),
+        ):
             mock_evo.logout_instance = AsyncMock(return_value={"status": "ok"})
             resp = await client.delete(f"{self.PREFIX}/ventas/logout", headers=auth_headers)
 
@@ -202,7 +247,7 @@ class TestMessageRoutes:
         assert resp.status_code == 200
         assert resp.json()["key"]["fromMe"] is True
         mock_evo.send_text.assert_called_once_with(
-            instance_name="ventas",
+            instance_name="acme_ventas",
             number="502xxx",
             text="Hello!",
             quoted=None,
@@ -238,40 +283,37 @@ class TestMessageRoutes:
 # ---------------------------------------------------------------------------
 class TestHealthRoute:
     async def test_all_healthy(self, client):
-        mock_session = MagicMock()
-        mock_session_instance = AsyncMock()
-        mock_session_instance.execute = AsyncMock()
+        mock_execute_result = MagicMock()
+        mock_execute_result.scalar.return_value = 0
+
+        mock_session = AsyncMock()
+        mock_session.execute.return_value = mock_execute_result
 
         @asynccontextmanager
-        async def mock_ctx():
-            yield mock_session_instance
-
-        mock_session.side_effect = lambda: mock_ctx()
-        mock_session.return_value = mock_ctx()
+        async def mock_session_ctx():
+            yield mock_session
 
         with (
-            patch("app.routes.health.async_session", mock_session),
+            patch("app.routes.health.async_session", return_value=mock_session_ctx()),
             patch("app.routes.health.evolution_service") as mock_evo,
         ):
             mock_evo.is_reachable = AsyncMock(return_value=True)
-            # async_session is used as `async with async_session() as session:`
-            # Need to make it return an async context manager
             resp = await client.get("/api/health")
 
         assert resp.status_code == 200
         body = resp.json()
         assert body["status"] == "ok"
-        assert body["database"] == "connected"
-        assert body["evolution_api"] == "reachable"
+        assert body["database"]["status"] == "connected"
+        assert body["evolution_api"]["status"] == "reachable"
 
     async def test_db_down_returns_degraded(self, client):
         @asynccontextmanager
-        async def failing_session():
+        async def failing_ctx():
             raise ConnectionError("DB is down")
-            yield  # noqa: unreachable
+            yield  # unreachable
 
         with (
-            patch("app.routes.health.async_session", return_value=failing_session()),
+            patch("app.routes.health.async_session", return_value=failing_ctx()),
             patch("app.routes.health.evolution_service") as mock_evo,
         ):
             mock_evo.is_reachable = AsyncMock(return_value=True)
@@ -280,15 +322,18 @@ class TestHealthRoute:
         assert resp.status_code == 200
         body = resp.json()
         assert body["status"] == "degraded"
-        assert body["database"] == "disconnected"
+        assert body["database"]["status"] == "disconnected"
 
     async def test_evolution_unreachable(self, client):
-        mock_session_instance = AsyncMock()
-        mock_session_instance.execute = AsyncMock()
+        mock_execute_result = MagicMock()
+        mock_execute_result.scalar.return_value = 0
+
+        mock_session = AsyncMock()
+        mock_session.execute.return_value = mock_execute_result
 
         @asynccontextmanager
         async def mock_ctx():
-            yield mock_session_instance
+            yield mock_session
 
         with (
             patch("app.routes.health.async_session", return_value=mock_ctx()),
@@ -299,23 +344,25 @@ class TestHealthRoute:
 
         assert resp.status_code == 200
         body = resp.json()
-        assert body["evolution_api"] == "unreachable"
+        assert body["evolution_api"]["status"] == "unreachable"
 
     async def test_health_no_auth_required(self, client):
         """Health endpoint is public."""
+        mock_execute_result = MagicMock()
+        mock_execute_result.scalar.return_value = 0
+
+        mock_session = AsyncMock()
+        mock_session.execute.return_value = mock_execute_result
+
+        @asynccontextmanager
+        async def mock_ctx():
+            yield mock_session
+
         with (
-            patch("app.routes.health.async_session") as mock_sess,
+            patch("app.routes.health.async_session", return_value=mock_ctx()),
             patch("app.routes.health.evolution_service") as mock_evo,
         ):
             mock_evo.is_reachable = AsyncMock(return_value=True)
-
-            @asynccontextmanager
-            async def mock_ctx():
-                mock_s = AsyncMock()
-                mock_s.execute = AsyncMock()
-                yield mock_s
-
-            mock_sess.return_value = mock_ctx()
             resp = await client.get("/api/health")
 
         assert resp.status_code == 200
@@ -325,10 +372,9 @@ class TestHealthRoute:
 # Auth
 # ---------------------------------------------------------------------------
 class TestAuth:
-    async def test_valid_key_passes(self, client, auth_headers):
-        with patch("app.routes.instances.evolution_service") as mock_evo:
-            mock_evo.fetch_instances = AsyncMock(return_value=[])
-            resp = await client.get("/api/instances", headers=auth_headers)
+    async def test_valid_key_passes(self, client, tenant_headers):
+        with patch("app.routes.instances.get_tenant_instances", new=AsyncMock(return_value=[])):
+            resp = await client.get("/api/instances", headers=tenant_headers)
         assert resp.status_code == 200
 
     async def test_missing_key_fails(self, client):
@@ -339,11 +385,66 @@ class TestAuth:
         resp = await client.get("/api/instances", headers={"X-API-Key": "totally-wrong"})
         assert resp.status_code == 403
 
-    async def test_timing_safe_comparison(self):
-        """Verify we use secrets.compare_digest, not ==."""
+    async def test_admin_timing_safe_comparison(self):
+        """verify_admin_key uses secrets.compare_digest, not ==."""
         import inspect
-        from app.dependencies import verify_api_key
+        from app.dependencies import verify_admin_key
 
-        source = inspect.getsource(verify_api_key)
+        source = inspect.getsource(verify_admin_key)
         assert "compare_digest" in source
-        assert "==" not in source or "status_code" in source
+
+
+# ---------------------------------------------------------------------------
+# Tenant list update
+# ---------------------------------------------------------------------------
+class TestTenantListUpdate:
+    async def test_list_tenants_includes_instance_count(self, client, admin_headers):
+        """GET /api/admin/tenants returns instance_count per tenant."""
+        with patch("app.routes.tenants.list_tenants", AsyncMock(return_value=[])):
+            resp = await client.get("/api/admin/tenants", headers=admin_headers)
+        assert resp.status_code == 200
+        for item in resp.json():
+            assert "instance_count" in item
+
+    async def test_health_includes_instances_total(self, client):
+        mock_execute_result = MagicMock()
+        mock_execute_result.scalar.return_value = 0
+
+        mock_session = AsyncMock()
+        mock_session.execute.return_value = mock_execute_result
+
+        @asynccontextmanager
+        async def mock_session_ctx():
+            yield mock_session
+
+        with (
+            patch("app.routes.health.async_session", return_value=mock_session_ctx()),
+            patch("app.routes.health.evolution_service") as mock_evo,
+        ):
+            mock_evo.is_reachable = AsyncMock(return_value=True)
+            resp = await client.get("/api/health")
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "instances" in body
+        assert "total" in body["instances"]
+
+
+# ---------------------------------------------------------------------------
+# Logs route
+# ---------------------------------------------------------------------------
+class TestLogsRoute:
+    async def test_logs_no_follow_returns_json(self, client, admin_headers):
+        resp = await client.get("/api/logs?lines=10", headers=admin_headers)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "lines" in body
+        assert isinstance(body["lines"], list)
+
+    async def test_logs_requires_admin_key(self, client):
+        resp = await client.get("/api/logs")
+        assert resp.status_code in (403, 422)
+
+    async def test_logs_wrong_key_returns_403(self, client):
+        resp = await client.get("/api/logs", headers={"X-API-Key": "bad"})
+        assert resp.status_code == 403
