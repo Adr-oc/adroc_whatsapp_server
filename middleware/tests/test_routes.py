@@ -56,7 +56,7 @@ class TestWebhookRoute:
         mock_enqueue.assert_called_once()
         call_payload = mock_enqueue.call_args[0][0]
         assert call_payload["event"] == "messages.upsert"
-        assert call_payload["instance"] == "acme_ventas"
+        assert call_payload["instance"] == "ventas"
         assert mock_enqueue.call_args.kwargs["tenant_odoo_url"] == "https://acme.odoo.com/whatsapp/webhook"
         assert mock_enqueue.call_args.kwargs["tenant_odoo_key"] == "odoo-key"
 

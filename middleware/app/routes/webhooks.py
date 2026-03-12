@@ -88,9 +88,15 @@ async def receive_evolution_webhook(
     enqueue_error: str | None = None
     if payload.event in FORWARD_EVENTS:
         if tenant:
+            # Strip tenant prefix from instance name so Odoo sees the
+            # name it created (e.g. "demo_TARS INSTANCE" → "TARS INSTANCE")
+            odoo_instance_name = payload.instance
+            prefix = f"{tenant.slug}_"
+            if odoo_instance_name.startswith(prefix):
+                odoo_instance_name = odoo_instance_name[len(prefix):]
             forward_payload = {
                 "event": payload.event,
-                "instance": payload.instance,
+                "instance": odoo_instance_name,
                 "data": payload.data,
             }
             try:
