@@ -362,7 +362,10 @@ class DashboardView(Vertical):
             health = await self.app.api.health()
             tenants = await self.app.api.list_tenants()
         except Exception as e:
-            self.app.query_one(Sidebar).set_status("error", ok=False)
+            try:
+                self.app.query_one(Sidebar).set_status("error", ok=False)
+            except Exception:
+                pass
             self.notify(f"Dashboard error: {e}", severity="error", timeout=5)
             return
 
@@ -388,9 +391,12 @@ class DashboardView(Vertical):
         self._update_card("queue", str(queue), q_state)
 
         # Update sidebar status
-        self.app.query_one(Sidebar).set_status(
-            f"{MIDDLEWARE_URL.split('//')[1]}", ok=(status == "ok")
-        )
+        try:
+            self.app.query_one(Sidebar).set_status(
+                f"{MIDDLEWARE_URL.split('//')[1]}", ok=(status == "ok")
+            )
+        except Exception:
+            pass
 
         # Update tenant table
         table = self.query_one("#dash-tenant-table", DataTable)
@@ -1173,7 +1179,10 @@ class AdroCApp(App[None]):
 
     def action_show(self, screen_id: str) -> None:
         self.query_one(ContentSwitcher).current = screen_id
-        self.query_one(Sidebar).active = screen_id
+        try:
+            self.query_one(Sidebar).active = screen_id
+        except Exception:
+            pass
 
     def action_refresh(self) -> None:
         current = self.query_one(ContentSwitcher).current
