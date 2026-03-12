@@ -158,7 +158,7 @@ Screen {
     layout: horizontal;
 }
 #sidebar {
-    width: 24;
+    width: 26;
     background: $panel;
     border-right: tall $primary;
     padding: 1 1;
@@ -260,17 +260,17 @@ class Sidebar(Vertical):
 
     def compose(self) -> ComposeResult:
         yield Label("Adroc WA", id="sidebar-title")
-        yield Label("─" * 20)
+        yield Label("─" * 22)
         for screen_id, label, key in self.SCREENS:
             yield Button(
-                f"{label}  [{key}]",
+                f"[{key}] {label}",
                 id=f"nav-{screen_id}",
                 classes="nav-item" + (" active" if screen_id == "dashboard" else ""),
             )
-        yield Label("─" * 20)
+        yield Label("─" * 22)
         yield Label("● connecting...", id="sidebar-status")
         yield Label("")
-        yield Label("by Zorava", id="sidebar-brand")
+        yield Label("by Zorava🦊", id="sidebar-brand")
         yield Label("zorava.dev", id="sidebar-url")
 
     def watch_active(self, new_id: str) -> None:
