@@ -98,7 +98,25 @@ class OdooForwarder:
                     },
                 )
                 response.raise_for_status()
-                log.debug("odoo_forward_success", attempt=attempt + 1, url=url)
+                # Check if Odoo returned an error inside JSON-RPC 200
+                try:
+                    body = response.json()
+                    if "error" in body:
+                        log.warning(
+                            "odoo_forward_rejected",
+                            odoo_error=body["error"],
+                            url=url,
+                        )
+                    elif body.get("result", {}).get("status") == "error":
+                        log.warning(
+                            "odoo_forward_rejected",
+                            odoo_error=body["result"].get("message", "unknown"),
+                            url=url,
+                        )
+                    else:
+                        log.info("odoo_forward_success", url=url)
+                except Exception:
+                    log.info("odoo_forward_success", url=url)
                 return
             except (httpx.HTTPStatusError, httpx.RequestError) as e:
                 last_error = e
