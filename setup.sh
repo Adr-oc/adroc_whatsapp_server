@@ -91,14 +91,6 @@ if [ "${SKIP_ENV:-0}" = "0" ]; then
     echo -e "${BOLD}  Configuration${RESET}"
     echo ""
 
-    echo -n "  Odoo webhook URL: "
-    read -r ODOO_WEBHOOK_URL
-    while [ -z "$ODOO_WEBHOOK_URL" ]; do
-        warn "Required. Example: https://company.odoo.com/whatsapp/webhook"
-        echo -n "  Odoo webhook URL: "
-        read -r ODOO_WEBHOOK_URL
-    done
-
     echo -n "  PostgreSQL username [adroc]: "
     read -r POSTGRES_USER
     POSTGRES_USER=${POSTGRES_USER:-adroc}
@@ -106,8 +98,7 @@ if [ "${SKIP_ENV:-0}" = "0" ]; then
     # Generate secrets
     POSTGRES_PASSWORD=$(openssl rand -hex 16)
     EVOLUTION_API_KEY=$(openssl rand -hex 32)
-    MIDDLEWARE_API_KEY=$(openssl rand -hex 32)
-    ODOO_API_KEY=$(openssl rand -hex 32)
+    ADMIN_API_KEY=$(openssl rand -hex 32)
 
     cat > .env <<EOF
 POSTGRES_USER=${POSTGRES_USER}
@@ -115,16 +106,14 @@ POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
 EVOLUTION_DB_NAME=evolution
 MIDDLEWARE_DB_NAME=middleware
 EVOLUTION_API_KEY=${EVOLUTION_API_KEY}
-MIDDLEWARE_API_KEY=${MIDDLEWARE_API_KEY}
-ODOO_WEBHOOK_URL=${ODOO_WEBHOOK_URL}
-ODOO_API_KEY=${ODOO_API_KEY}
+ADMIN_API_KEY=${ADMIN_API_KEY}
 EOF
 
     ok "Created .env"
     echo ""
-    echo -e "  ${BOLD}Save these keys for Odoo:${RESET}"
-    echo -e "    MIDDLEWARE_API_KEY = ${CYAN}${MIDDLEWARE_API_KEY}${RESET}"
-    echo -e "    ODOO_API_KEY      = ${CYAN}${ODOO_API_KEY}${RESET}"
+    echo -e "  ${BOLD}Save this admin key:${RESET}"
+    echo -e "    ADMIN_API_KEY = ${CYAN}${ADMIN_API_KEY}${RESET}"
+    echo -e "  ${DIM}Use it with: python scripts/manage.py tenants --admin-key <key>${RESET}"
     echo ""
 fi
 
@@ -178,7 +167,7 @@ echo -e "${BOLD}  Configuring nginx${RESET}"
 
 NGINX_CONF="/etc/nginx/sites-available/adroc_whatsapp.conf"
 
-cat > "$NGINX_CONF" <<EOF
+sudo tee "$NGINX_CONF" > /dev/null <<EOF
 upstream adroc_whatsapp_middleware {
     server 127.0.0.1:8000;
 }
@@ -202,14 +191,14 @@ server {
 EOF
 
 # Enable site (create symlink if not exists)
-ln -sf "$NGINX_CONF" /etc/nginx/sites-enabled/adroc_whatsapp.conf
+sudo ln -sf "$NGINX_CONF" /etc/nginx/sites-enabled/adroc_whatsapp.conf
 
 # Test and reload nginx
-if nginx -t 2>/dev/null; then
-    systemctl reload nginx
+if sudo nginx -t 2>/dev/null; then
+    sudo systemctl reload nginx
     ok "Nginx configured and reloaded"
 else
-    fail "Nginx config test failed. Check: nginx -t"
+    fail "Nginx config test failed. Check: sudo nginx -t"
 fi
 
 # ── Verify end-to-end ──────────────────────────────────────────────────────
