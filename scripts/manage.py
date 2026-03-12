@@ -269,6 +269,9 @@ class Sidebar(Vertical):
             )
         yield Label("─" * 16)
         yield Label("● connecting...", id="sidebar-status")
+        yield Label("")
+        yield Label("by Zorava🦊", id="sidebar-brand")
+        yield Label("[link=https://zorava.dev]zorava.dev[/link]", id="sidebar-url")
 
     def watch_active(self, new_id: str) -> None:
         for screen_id, _, _, _ in self.SCREENS:
@@ -282,6 +285,33 @@ class Sidebar(Vertical):
         label = self.query_one("#sidebar-status", Label)
         color = "green" if ok else "red"
         label.update(f"[{color}]●[/{color}] {text}")
+
+
+class ApiKeyModal(ModalScreen):
+    """Shows an API key and stays open until user closes it."""
+
+    def __init__(self, title: str, api_key: str) -> None:
+        super().__init__()
+        self._title = title
+        self._api_key = api_key
+
+    def compose(self) -> ComposeResult:
+        with Container():
+            yield Label(f"[bold]{self._title}[/bold]")
+            yield Label("")
+            yield Label("[yellow]Copia esta clave AHORA — no se mostrará de nuevo:[/yellow]")
+            yield Label("")
+            yield Input(value=self._api_key, id="key-display")
+            yield Label("")
+            yield Button("Cerrar", variant="primary", id="btn-close-key")
+
+    @on(Button.Pressed, "#btn-close-key")
+    def close(self) -> None:
+        self.dismiss()
+
+    def on_key(self, event) -> None:
+        if event.key == "escape":
+            self.dismiss()
 
 
 class ConfirmModal(ModalScreen[bool]):
@@ -620,9 +650,10 @@ class TenantsView(Horizontal):
             try:
                 data = await self.app.api.create_tenant(**result)
                 api_key = data.get("api_key", "")
-                self.notify(f"Tenant creado. API KEY: {api_key}", severity="information",
-                            timeout=30)
                 self.refresh_data()
+                await self.app.push_screen_wait(
+                    ApiKeyModal("Tenant creado", api_key)
+                )
             except ApiError as e:
                 self.notify(f"Error: {e.detail}", severity="error")
 
@@ -664,7 +695,9 @@ class TenantsView(Horizontal):
             try:
                 data = await self.app.api.rotate_key(slug)
                 new_key = data.get("api_key", "")
-                self.notify(f"Nueva API KEY: {new_key}", severity="information", timeout=60)
+                await self.app.push_screen_wait(
+                    ApiKeyModal("API Key rotada", new_key)
+                )
             except ApiError as e:
                 self.notify(f"Error: {e.detail}", severity="error")
 
@@ -786,7 +819,8 @@ class InstancesView(Vertical):
     @work(exclusive=True)
     async def refresh_data(self) -> None:
         try:
-            tenant_filter = self.query_one("#inst-filter", Select).value or None
+            raw = self.query_one("#inst-filter", Select).value
+            tenant_filter = None if raw is Select.BLANK or not raw else str(raw)
             self._instances = await self.app.api.list_instances(tenant=tenant_filter or None)
             self._tenants = await self.app.api.list_tenants()
         except ApiError as e:
