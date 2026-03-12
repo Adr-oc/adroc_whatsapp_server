@@ -158,7 +158,7 @@ Screen {
     layout: horizontal;
 }
 #sidebar {
-    width: 20;
+    width: 24;
     background: $panel;
     border-right: tall $primary;
     padding: 1 1;
@@ -251,30 +251,30 @@ class Sidebar(Vertical):
     active: reactive[str] = reactive("dashboard")
 
     SCREENS = [
-        ("dashboard",  "📊", "Dashboard",  "1"),
-        ("tenants",    "🏢", "Tenants",    "2"),
-        ("instances",  "📱", "Instancias", "3"),
-        ("logs",       "📋", "Logs",       "4"),
-        ("send",       "💬", "Test Msg",   "5"),
+        ("dashboard",  "Dashboard",  "1"),
+        ("tenants",    "Tenants",    "2"),
+        ("instances",  "Instancias", "3"),
+        ("logs",       "Logs",       "4"),
+        ("send",       "Test Msg",   "5"),
     ]
 
     def compose(self) -> ComposeResult:
-        yield Label("⚡ Adroc WA", id="sidebar-title")
-        yield Label("─" * 16)
-        for screen_id, icon, label, key in self.SCREENS:
+        yield Label("Adroc WA", id="sidebar-title")
+        yield Label("─" * 20)
+        for screen_id, label, key in self.SCREENS:
             yield Button(
-                f"{icon} {label}  [{key}]",
+                f"{label}  [{key}]",
                 id=f"nav-{screen_id}",
                 classes="nav-item" + (" active" if screen_id == "dashboard" else ""),
             )
-        yield Label("─" * 16)
+        yield Label("─" * 20)
         yield Label("● connecting...", id="sidebar-status")
         yield Label("")
-        yield Label("by Zorava🦊", id="sidebar-brand")
+        yield Label("by Zorava", id="sidebar-brand")
         yield Label("zorava.dev", id="sidebar-url")
 
     def watch_active(self, new_id: str) -> None:
-        for screen_id, _, _, _ in self.SCREENS:
+        for screen_id, _, _ in self.SCREENS:
             btn = self.query_one(f"#nav-{screen_id}", Button)
             if screen_id == new_id:
                 btn.add_class("active")
