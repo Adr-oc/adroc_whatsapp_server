@@ -271,7 +271,7 @@ class Sidebar(Vertical):
         yield Label("● connecting...", id="sidebar-status")
         yield Label("")
         yield Label("by Zorava🦊", id="sidebar-brand")
-        yield Label("[link=https://zorava.dev]zorava.dev[/link]", id="sidebar-url")
+        yield Label("zorava.dev", id="sidebar-url")
 
     def watch_active(self, new_id: str) -> None:
         for screen_id, _, _, _ in self.SCREENS:
